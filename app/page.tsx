@@ -23,11 +23,31 @@ export default function Home() {
   useEffect(() => {
     const fetchCoins = async () => {
       try {
+        // 🚀 최신 환율 가져오기 (USD → KRW)
+        const exchangeRateResponse = await fetch(
+          'https://api.coingecko.com/api/v3/simple/price?ids=usd&vs_currencies=krw'
+        );
+        if (!exchangeRateResponse.ok) throw new Error('환율 데이터를 가져올 수 없습니다.');
+
+        const exchangeRateData = await exchangeRateResponse.json();
+        const usdToKrw = exchangeRateData.usd.krw || 1300; // 환율 데이터가 없으면 기본값(1300) 사용
+
+        console.log(`✅ 최신 환율: 1 USD = ${usdToKrw} KRW`);
+
+        // 🚀 최신 코인 데이터 가져오기
         const response = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd');
-        if (!response.ok) throw new Error('API 응답이 올바르지 않습니다.');
+        if (!response.ok) throw new Error('코인 데이터를 가져올 수 없습니다.');
 
         const data = await response.json();
-        setCoinData(data);
+
+        // 🚀 가격을 KRW로 변환
+        const convertedData = data.map((coin: Coin) => ({
+          ...coin,
+          current_price: Math.round(coin.current_price * usdToKrw), // 원화 변환
+          market_cap: Math.round(coin.market_cap * usdToKrw), // 시가총액 변환
+        }));
+
+        setCoinData(convertedData);
       } catch (err: unknown) {
         if (err instanceof Error) {
           setError(err.message);
@@ -39,36 +59,52 @@ export default function Home() {
       }
     };
 
-    // ✅ 10초마다 fetchCoins 실행 (실시간 업데이트)
+    // ✅ 40초마다 fetchCoins 실행 (실시간 업데이트)
     fetchCoins(); // 초기 데이터 로드
-    const intervalId = setInterval(fetchCoins, 10000); // 10초마다 최신 데이터 가져오기
+    const intervalId = setInterval(fetchCoins, 40000); // 40초마다 최신 데이터 가져오기
 
     return () => clearInterval(intervalId); // 컴포넌트 언마운트 시 인터벌 해제
   }, []);
-  // 🚀 모달 열기 & 예측 실행
+
   const handleRowClick = async (coin: Coin) => {
     setSelectedCoin(coin);
+    setPredictedPrices([]);
 
     try {
-      const url = `https://api.coingecko.com/api/v3/coins/${coin.id}/market_chart?vs_currency=usd&days=365&interval=daily`;
-      const response = await fetch(url);
-      const data = await response.json();
+      console.log('⏳ AI 예측 시작...');
 
-      const prices = data.prices.map((price: number[]) => price[1]);
+      setTimeout(async () => {
+        const url = `https://api.coingecko.com/api/v3/coins/${coin.id}/market_chart?vs_currency=usd&days=365&interval=daily`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('API 응답이 올바르지 않습니다.');
 
-      // 🚀 예측된 가격 가져오기
-      let predicted = await trainAndPredict(prices);
+        const data = await response.json();
+        const prices = data.prices.map((price: number[]) => price[1]);
 
-      // ✅ 예측된 값이 중첩 배열이면 1차원 배열로 변환
-      if (Array.isArray(predicted) && Array.isArray(predicted[0])) {
-        predicted = predicted.flat();
-      }
+        // 🚀 최신 환율 가져오기
+        const exchangeRateResponse = await fetch(
+          'https://api.coingecko.com/api/v3/simple/price?ids=usd&vs_currencies=krw'
+        );
+        const exchangeRateData = await exchangeRateResponse.json();
+        const usdToKrw = exchangeRateData.usd.krw || 1300;
 
-      setPredictedPrices(predicted as number[]);
+        // 🚀 AI 예측 모델 실행
+        let predicted = await trainAndPredict(prices);
+        if (Array.isArray(predicted) && Array.isArray(predicted[0])) {
+          predicted = predicted.flat();
+        }
+
+        // ✅ 예측된 가격을 KRW로 변환
+        const predictedKrw = (predicted as number[]).map((price) => Math.round(price * usdToKrw));
+
+        console.log('✅ AI 예측 완료 (KRW)', predictedKrw);
+        setPredictedPrices(predictedKrw);
+      }, 2000);
     } catch (error) {
-      console.error('Error fetching chart data:', error);
+      console.error('🚨 API 요청 실패:', error);
     }
   };
+
   const handleCloseModal = () => {
     setSelectedCoin(null);
     setPredictedPrices([]);
@@ -114,8 +150,12 @@ export default function Home() {
                   <span>{coin.name}</span>
                 </td>
                 <td className="p-3 border border-slate-300 uppercase">{coin.symbol}</td>
-                <td className="p-3 border border-slate-300">{coin.current_price.toLocaleString()}</td>
-                <td className="p-3 border border-slate-300">{coin.market_cap.toLocaleString()}</td>
+                <td className="p-3 border border-slate-300">
+                  ₩{coin.current_price.toLocaleString()} {/* ✅ 원화(KRW) 적용 */}
+                </td>
+                <td className="p-3 border border-slate-300">
+                  ₩{coin.market_cap.toLocaleString()} {/* ✅ 시가총액(KRW) 적용 */}
+                </td>
               </tr>
             ))}
           </tbody>
